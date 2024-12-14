@@ -27,9 +27,10 @@ pub const Scanner = struct {
 
     fn scanToken(self: *Scanner) !void {
         const char = self.getCurrentChar();
+        self.startPos = self.curPos;
         defer self.advance();
 
-        std.debug.print("Recieved char: %{c}% at pos {d} \n", .{ char, self.curPos });
+        // std.debug.print("\n Recieved char: %{c}% at pos {d} \n", .{ char, self.curPos });
 
         return switch (char) {
             ' ' => {},
@@ -54,23 +55,87 @@ pub const Scanner = struct {
                     try self.add_token(token.TokenType.SLASH, null);
                 }
             },
-            '"' => {
-                self.startPos = self.curPos;
-                while (self.peek() != '"' and self.peek() != null and !self.isAtEnd()) {
-                    self.advance();
+            '"' => try self.handleDQuote(),
+            else => {
+                if (isDigit(char)) {
+                    try self.handleDigit();
+                    return;
                 }
-                if (self.peek() != '"' and self.isAtEnd()) {
-                    return err.CleaError.UnterminatedString;
+                if (isAlpha(char)) {
+                    try self.handleIdent();
+                    return;
                 }
-                if (self.peek() == '"') {
-                    self.advance();
-                    try self.add_token(token.TokenType.STRING, self.source[self.startPos + 1 .. self.curPos]);
-                }
+                return err.CleaError.UnexpectedChar;
             },
-            else => return err.CleaError.UnexpectedChar,
         };
     }
 
+    fn handleIdent(self: *Scanner) !void {
+        while (isAlphaNumeric(self.peek())) {
+            self.advance();
+        }
+        const ident = self.source[self.startPos..self.curPos];
+        const isReserved = try token.Token.isIdentReserved(ident);
+        if (isReserved) {
+            try self.add_token(token.Token.getReservedIdent(ident), ident);
+        } else {
+            try self.add_token(token.TokenType.IDENTIFIER, ident);
+        }
+    }
+
+    fn isAlpha(char: ?u8) bool {
+        if (char == null) {
+            return false;
+        }
+        return (char.? >= 'a' and char.? <= 'z') or (char.? >= 'A' and char.? <= 'Z') or char.? == '_';
+    }
+
+    fn isAlphaNumeric(char: ?u8) bool {
+        return isAlpha(char) or isDigit(char);
+    }
+
+    fn handleDigit(self: *Scanner) !void {
+        while (isDigit(self.peek())) {
+            self.advance();
+            if (self.peek() == '.' and !isDigit(self.peekNext())) {
+                return err.CleaError.ExpectedIntAfterPoint;
+            }
+            if (self.peek() == '.') {
+                self.advance();
+            }
+        }
+        self.advance();
+        try self.add_token(token.TokenType.NUMBER, self.source[self.startPos..self.curPos]);
+    }
+    fn peekNext(self: *Scanner) ?u8 {
+        if (self.curPos + 2 < self.source.len) {
+            return self.source[self.curPos + 2];
+        }
+        return null;
+    }
+
+    fn isDigit(char: ?u8) bool {
+        if (char == null) {
+            return false;
+        }
+        return char.? >= '0' and char.? <= '9';
+    }
+
+    fn handleDQuote(self: *Scanner) !void {
+        while (self.peek() != '"' and self.peek() != null and !self.isAtEnd()) {
+            if (self.source[self.curPos] == '\n') {
+                self.line += 1;
+            }
+            self.advance();
+        }
+        if (self.peek() != '"' and self.isAtEnd()) {
+            return err.CleaError.UnterminatedString;
+        }
+        if (self.peek() == '"') {
+            self.advance();
+            try self.add_token(token.TokenType.STRING, self.source[self.startPos + 1 .. self.curPos]);
+        }
+    }
     fn isAtEnd(self: *Scanner) bool {
         return self.source.len - 1 == self.curPos;
     }
@@ -140,4 +205,28 @@ test "should throw UnterminatedString error" {
     const source = [_]u8{ '"', 's', 't', 'r', 'i', 'n', 'g' };
     var snr = Scanner.init(source[0..source.len]);
     try std.testing.expectError(err.CleaError.UnterminatedString, snr.scanToken());
+}
+
+test "parse number " {
+    const source = [_]u8{ '0', '5', '9' };
+    var snr = Scanner.init(source[0..source.len]);
+    _ = try snr.scanToken();
+    const numberToken = snr.tokens.pop();
+    try std.testing.expect(token.TokenType.NUMBER == numberToken.token_type);
+    try std.testing.expect(std.mem.eql(u8, numberToken.token_value.?, "059"));
+}
+
+test "should throw ExpectedIntAfterPoint" {
+    const source = [_]u8{ '0', '5', '9', '.' };
+    var snr = Scanner.init(source[0..source.len]);
+    try std.testing.expectError(err.CleaError.ExpectedIntAfterPoint, snr.scanToken());
+}
+test "parse float" {
+    const source = [_]u8{ '0', '5', '9', '.', '9', '5', '0' };
+    var snr = Scanner.init(source[0..source.len]);
+    _ = try snr.scanToken();
+    const numberToken = snr.tokens.pop();
+
+    try std.testing.expect(token.TokenType.NUMBER == numberToken.token_type);
+    try std.testing.expect(std.mem.eql(u8, numberToken.token_value.?, "059.950"));
 }

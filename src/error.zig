@@ -3,8 +3,4 @@ pub const UnexpectedChar = struct {
     message: *const []u8,
 };
 
-pub const CleaError = error{
-    DefaultError,
-    UnexpectedChar,
-    UnterminatedString,
-};
+pub const CleaError = error{ DefaultError, UnexpectedChar, UnterminatedString, ExpectedIntAfterPoint };
