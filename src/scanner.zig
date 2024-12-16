@@ -17,7 +17,6 @@ pub const Scanner = struct {
 
     pub fn scanTokens(self: *Scanner) !void {
         std.debug.print("scanning tokens \n", .{});
-        // var i: u16 = 0;
         while (self.curPos < self.source.len) {
             self.scanToken() catch |e| {
                 std.debug.print("Line: {d}, Pos: {d} Error: {} \n", .{ self.line, self.curPos, e });
@@ -30,8 +29,6 @@ pub const Scanner = struct {
         self.startPos = self.curPos;
         defer self.advance();
 
-        // std.debug.print("\n Recieved char: %{c}% at pos {d} \n", .{ char, self.curPos });
-
         return switch (char) {
             ' ' => {},
             '(' => try self.add_token(token.TokenType.LEFT_PAREN, null),
@@ -43,7 +40,7 @@ pub const Scanner = struct {
             '-' => try self.add_token(token.TokenType.MINUS, null),
             '+' => try self.add_token(token.TokenType.PLUS, null),
             '*' => try self.add_token(token.TokenType.STAR, null),
-            ';' => try self.add_token(token.TokenType.SEMICOLON, null),
+            ';' => try self.add_token(token.TokenType.SEMICOLON, ";"),
             '!' => try self.addTokenIfNextIs('=', token.TokenType.BANG_EQUAL, token.TokenType.BANG),
             '=' => try self.addTokenIfNextIs('=', token.TokenType.EQUAL_EQUAL, token.TokenType.EQUAL),
             '>' => try self.addTokenIfNextIs('=', token.TokenType.GREATER_EQUAL, token.TokenType.GREATER),
@@ -51,6 +48,18 @@ pub const Scanner = struct {
             '/' => {
                 if (self.peek() == '/') {
                     self.eat_comments();
+                } else if (self.peek() == '*') {
+                    while (!self.isAtEnd()) {
+                        if (self.source[self.curPos] == '*' and self.peek() == '/') {
+                            self.advance();
+                            return;
+                        }
+                        if (self.source[self.curPos] == '\n') {
+                            self.line += 1;
+                        }
+                        self.advance();
+                    }
+                    return err.CleaError.UnterminatedComment;
                 } else {
                     try self.add_token(token.TokenType.SLASH, null);
                 }
@@ -74,7 +83,7 @@ pub const Scanner = struct {
         while (isAlphaNumeric(self.peek())) {
             self.advance();
         }
-        const ident = self.source[self.startPos..self.curPos];
+        const ident = self.source[self.startPos .. self.curPos + 1];
         const isReserved = try token.Token.isIdentReserved(ident);
         if (isReserved) {
             try self.add_token(token.Token.getReservedIdent(ident), ident);
@@ -229,4 +238,55 @@ test "parse float" {
 
     try std.testing.expect(token.TokenType.NUMBER == numberToken.token_type);
     try std.testing.expect(std.mem.eql(u8, numberToken.token_value.?, "059.950"));
+}
+
+test "should identify reserved keywords and user identifiers" {
+    const source = "var name = \"tanisha\"; ";
+
+    var snr = Scanner.init(source[0..source.len]);
+    _ = try snr.scanTokens();
+
+    const semiColonToken = snr.tokens.pop();
+    try std.testing.expect(semiColonToken.token_type == token.TokenType.SEMICOLON);
+    try std.testing.expect(std.mem.eql(u8, semiColonToken.token_value.?, ";"));
+
+    const stringToken = snr.tokens.pop();
+    try std.testing.expect(stringToken.token_type == token.TokenType.STRING);
+    try std.testing.expect(std.mem.eql(u8, stringToken.token_value.?, "tanisha"));
+
+    const equalToken = snr.tokens.pop();
+    try std.testing.expect(equalToken.token_type == token.TokenType.EQUAL);
+
+    const identifierToken = snr.tokens.pop();
+    try std.testing.expect(identifierToken.token_type == token.TokenType.IDENTIFIER);
+    try std.testing.expect(std.mem.eql(u8, identifierToken.token_value.?, "name"));
+
+    const varToken = snr.tokens.pop();
+    try std.testing.expect(varToken.token_type == token.TokenType.VAR);
+    try std.testing.expect(std.mem.eql(u8, varToken.token_value.?, "var"));
+}
+
+test "skip c like comments" {
+    const source = "/* Testing c like comments */ var";
+
+    var snr = Scanner.init(source[0..source.len]);
+    _ = try snr.scanTokens();
+    const varToken = snr.tokens.pop();
+    try std.testing.expect(varToken.token_type == token.TokenType.VAR);
+    try std.testing.expect(snr.tokens.items.len == 0);
+}
+
+//XXX assert line count as well
+test "detect  UnterminatedComment error on C like comment" {
+    const source = "/* Testing c like comments ";
+
+    var snr = Scanner.init(source[0..source.len]);
+    try std.testing.expectError(err.CleaError.UnterminatedComment, snr.scanToken());
+}
+
+test "detect  UnterminatedComment error on C like comment ending with *" {
+    const source = "/* Testing c like comments *";
+
+    var snr = Scanner.init(source[0..source.len]);
+    try std.testing.expectError(err.CleaError.UnterminatedComment, snr.scanToken());
 }

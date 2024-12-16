@@ -7,16 +7,11 @@ pub const Token = struct {
     token_value: ?[]const u8,
     line: u16,
     pos: u16,
-    // reservedKeywords: ?std.StringHashMap(TokenType),
 
-    // pub fn init() Token {
-    //     return
-    // }
     pub fn isIdentReserved(ident: []const u8) !bool {
         if (reservedKeywords == null or reservedKeywords.?.capacity() == 0) {
             try load_reservedKeywords();
         }
-        // const tokenType = try reservedKeywords.
         if (reservedKeywords) |k| {
             return k.get(ident) != null;
         }
