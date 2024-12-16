@@ -47,19 +47,9 @@ pub const Scanner = struct {
             '<' => try self.addTokenIfNextIs('=', token.TokenType.LESS_EQUAL, token.TokenType.LESS),
             '/' => {
                 if (self.peek() == '/') {
-                    self.eat_comments();
+                    self.eatComments();
                 } else if (self.peek() == '*') {
-                    while (!self.isAtEnd()) {
-                        if (self.source[self.curPos] == '*' and self.peek() == '/') {
-                            self.advance();
-                            return;
-                        }
-                        if (self.source[self.curPos] == '\n') {
-                            self.line += 1;
-                        }
-                        self.advance();
-                    }
-                    return err.CleaError.UnterminatedComment;
+                    try self.handleCLikeComment();
                 } else {
                     try self.add_token(token.TokenType.SLASH, null);
                 }
@@ -77,6 +67,20 @@ pub const Scanner = struct {
                 return err.CleaError.UnexpectedChar;
             },
         };
+    }
+
+    fn handleCLikeComment(self: *Scanner) !void {
+        while (!self.isAtEnd()) {
+            if (self.source[self.curPos] == '*' and self.peek() == '/') {
+                self.advance();
+                return;
+            }
+            if (self.source[self.curPos] == '\n') {
+                self.line += 1;
+            }
+            self.advance();
+        }
+        return err.CleaError.UnterminatedComment;
     }
 
     fn handleIdent(self: *Scanner) !void {
@@ -148,7 +152,7 @@ pub const Scanner = struct {
     fn isAtEnd(self: *Scanner) bool {
         return self.source.len - 1 == self.curPos;
     }
-    fn eat_comments(self: *Scanner) void {
+    fn eatComments(self: *Scanner) void {
         while (self.peek() != '\n' and self.peek() != null) {
             self.advance();
         }
@@ -197,7 +201,7 @@ test "match peeked character" {
 test "eat all comments" {
     const source = [_]u8{ '/', '/', 'c', 'h', '\n' };
     var snr = Scanner.init(source[0..source.len]);
-    snr.eat_comments();
+    snr.eatComments();
     try std.testing.expect(snr.source[snr.curPos] == 'h');
 }
 
